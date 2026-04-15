@@ -43,7 +43,7 @@ ig2raindrop = "ig2raindrop_cli.cli:app"
 packages = [{include = "ig2raindrop_cli", from = "src"}]
 
 [tool.poetry.group.dev.dependencies]
-pytest = ">=8.0.0"
+pytest = ">=9.0.3"
 pytest-cov = ">=5.0.0"
 pytest-httpx = ">=0.30.0"
 ty = ">=0.0.15"
