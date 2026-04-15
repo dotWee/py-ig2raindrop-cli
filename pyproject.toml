@@ -14,7 +14,7 @@ dependencies = [
     "pydantic-settings>=2.13.1",
     "rich>=13.0.0",
     "instagrapi>=2.1.0",
-    "tomli-w>=1.0.0",
+    "tomli-w>=1.2.0",
 ]
 license = {file = "LICENSE"}
 keywords = ["instagram", "raindrop", "bookmarks", "sync", "cli"]
