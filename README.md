@@ -7,10 +7,10 @@ Follows the same CLI and configuration patterns as [x2raindrop-cli](https://gith
 ## Installation
 
 ```bash
-# Clone and install with Poetry
+# Clone and install with uv
 git clone <repo-url>
 cd ig2raindrop-cli
-poetry install
+uv sync --all-groups
 ```
 
 ## Quick Start
@@ -171,13 +171,13 @@ ig2raindrop config path
 
 ```bash
 # Install dev dependencies
-poetry install
+uv sync --all-groups
 
 # Run tests
-poetry run pytest
+uv run pytest
 
 # Run tests with coverage
-poetry run pytest --tb=short -q
+uv run pytest --tb=short -q
 ```
 
 ## License

@@ -8,15 +8,15 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "typer[all]>=0.24.1",
+    "typer>=0.24.1",
     "httpx>=0.28.1",
-    "pydantic>=2.13.3",
+    "pydantic>=2.13.2",
     "pydantic-settings>=2.14.0",
     "rich>=15.0.0",
     "instagrapi>=2.4.3",
     "tomli-w>=1.2.0",
 ]
-license = {file = "LICENSE"}
+license-files = ["LICENSE"]
 keywords = ["instagram", "raindrop", "bookmarks", "sync", "cli"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -39,15 +39,17 @@ Issues = "https://github.com/dotWee/py-ig2raindrop-cli/issues"
 [project.scripts]
 ig2raindrop = "ig2raindrop_cli.cli:app"
 
-[tool.poetry]
-packages = [{include = "ig2raindrop_cli", from = "src"}]
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "pytest-httpx>=0.36.2",
+    "ty>=0.0.32",
+    "ruff>=0.15.11,<0.16.0",
+]
 
-[tool.poetry.group.dev.dependencies]
-pytest = ">=9.0.3"
-pytest-cov = ">=7.1.0"
-pytest-httpx = ">=0.36.2"
-ty = ">=0.0.32"
-ruff = "^0.15.11"
+[tool.hatch.build.targets.wheel]
+packages = ["src/ig2raindrop_cli"]
 
 [tool.ruff]
 line-length = 100
@@ -88,15 +90,15 @@ exclude_lines = [
     "if __name__ == .__main__.:",
 ]
 
-[tool.pytest.ini_options]
+[tool.pytest]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = [
+    "-v",
     "--cov=ig2raindrop_cli",
     "--cov-report=term-missing",
     "--cov-report=html",
-    "-v",
 ]
 
 [tool.ty.environment]
@@ -115,5 +117,5 @@ reportMissingTypeStubs = false
 reportMissingModuleSource = false
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"

@@ -82,6 +82,3 @@ config.toml
 # OS
 .DS_Store
 Thumbs.db
-
-# Poetry
-poetry.lock
