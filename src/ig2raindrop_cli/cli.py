@@ -6,8 +6,9 @@ Follows the same sub-app structure as x2raindrop-cli.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 from rich.console import Console
@@ -854,12 +855,13 @@ def _normalize_collection_id(value: object) -> int | None:
     return None
 
 
-def _get_parent_collection_id(collection: dict[str, object]) -> int | None:
+def _get_parent_collection_id(collection: Mapping[str, object]) -> int | None:
     """Extract the parent collection ID from a Raindrop collection payload."""
     parent = collection.get("parent")
-    if isinstance(parent, dict):
+    if isinstance(parent, Mapping):
+        parent_mapping = cast(Mapping[str, object], parent)
         for key in ("$id", "_id", "id"):
-            parent_id = _normalize_collection_id(parent.get(key))
+            parent_id = _normalize_collection_id(parent_mapping.get(key))
             if parent_id is not None:
                 return parent_id
         return None
@@ -875,14 +877,14 @@ def _get_parent_collection_id(collection: dict[str, object]) -> int | None:
     return None
 
 
-def _collection_sort_key(collection: dict[str, object]) -> tuple[str, str]:
+def _collection_sort_key(collection: Mapping[str, object]) -> tuple[str, str]:
     """Build a stable sort key for Raindrop collections."""
     title = str(collection.get("title", "")).strip().lower()
     collection_id = str(collection.get("_id", ""))
     return title, collection_id
 
 
-def _format_collection_label(collection: dict[str, object]) -> str:
+def _format_collection_label(collection: Mapping[str, object]) -> str:
     """Format a collection label for tree output."""
     title = str(collection.get("title", "")).strip() or "(untitled)"
     collection_id = collection.get("_id", "?")
