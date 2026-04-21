@@ -44,10 +44,25 @@ class RaindropClient:
             return False
 
     def get_collections(self) -> list[dict]:
-        """List all root collections."""
-        resp = self._client.get("/collections")
-        resp.raise_for_status()
-        return resp.json().get("items", [])
+        """List all collections, including child collections when available."""
+        root_resp = self._client.get("/collections")
+        root_resp.raise_for_status()
+        root_items = root_resp.json().get("items", [])
+
+        child_items: list[dict] = []
+        child_resp = self._client.get("/collections/childrens")
+        if child_resp.status_code == 404:
+            return root_items
+        child_resp.raise_for_status()
+        child_items = child_resp.json().get("items", [])
+
+        merged: dict[int | str, dict] = {}
+        for collection in [*root_items, *child_items]:
+            collection_id = collection.get("_id")
+            if collection_id is None:
+                continue
+            merged[collection_id] = collection
+        return list(merged.values())
 
     def find_or_create_collection(self, title: str) -> int:
         """Find a collection by title or create it. Returns the collection ID."""

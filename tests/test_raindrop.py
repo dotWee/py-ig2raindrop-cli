@@ -84,14 +84,50 @@ class TestGetCollections:
             url="https://api.raindrop.io/rest/v1/collections",
             json={"result": True, "items": [{"_id": 1, "title": "Instagram"}]},
         )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections/childrens",
+            json={"result": True, "items": []},
+        )
         cols = mock_client.get_collections()
         assert len(cols) == 1
         assert cols[0]["title"] == "Instagram"
+
+    def test_list_collections_includes_children(self, httpx_mock, mock_client: RaindropClient) -> None:
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections",
+            json={"result": True, "items": [{"_id": 1, "title": "Root"}]},
+        )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections/childrens",
+            json={"result": True, "items": [{"_id": 2, "title": "Child", "parent": {"$id": 1}}]},
+        )
+        cols = mock_client.get_collections()
+        titles = {c["title"] for c in cols}
+        assert titles == {"Root", "Child"}
+
+    def test_list_collections_fallback_when_children_endpoint_missing(
+        self, httpx_mock, mock_client: RaindropClient
+    ) -> None:
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections",
+            json={"result": True, "items": [{"_id": 1, "title": "Root"}]},
+        )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections/childrens",
+            status_code=404,
+        )
+        cols = mock_client.get_collections()
+        assert len(cols) == 1
+        assert cols[0]["title"] == "Root"
 
     def test_find_or_create_existing(self, httpx_mock, mock_client: RaindropClient) -> None:
         httpx_mock.add_response(
             url="https://api.raindrop.io/rest/v1/collections",
             json={"result": True, "items": [{"_id": 42, "title": "Instagram"}]},
+        )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections/childrens",
+            json={"result": True, "items": []},
         )
         cid = mock_client.find_or_create_collection("Instagram")
         assert cid == 42
@@ -99,6 +135,10 @@ class TestGetCollections:
     def test_find_or_create_new(self, httpx_mock, mock_client: RaindropClient) -> None:
         httpx_mock.add_response(
             url="https://api.raindrop.io/rest/v1/collections",
+            json={"result": True, "items": []},
+        )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections/childrens",
             json={"result": True, "items": []},
         )
         httpx_mock.add_response(

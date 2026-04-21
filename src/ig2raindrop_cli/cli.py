@@ -13,6 +13,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.tree import Tree
 
 from . import __version__
 from .config import (
@@ -523,19 +524,7 @@ def raindrop_collections(
         raw_collections = client.get_collections()
         client.close()
 
-        table = Table(title="Raindrop.io Collections")
-        table.add_column("ID", style="cyan", justify="right")
-        table.add_column("Title", style="green")
-        table.add_column("Items", justify="right")
-
-        for c in sorted(raw_collections, key=lambda x: x.get("title", "").lower()):
-            table.add_row(
-                str(c["_id"]),
-                c.get("title", ""),
-                str(c.get("count", "")),
-            )
-
-        console.print(table)
+        console.print(_build_collections_tree(raw_collections))
         console.print(f"\nTotal: {len(raw_collections)} collections")
 
     except typer.Exit:
@@ -744,3 +733,99 @@ def _show_results(result: ImportResult) -> None:
             console.print(f"  • {err}")
         if len(result.errors) > 10:
             console.print(f"  … and {len(result.errors) - 10} more errors")
+
+
+def _normalize_collection_id(value: object) -> int | None:
+    """Normalize an arbitrary collection ID value to an integer."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _get_parent_collection_id(collection: dict[str, object]) -> int | None:
+    """Extract the parent collection ID from a Raindrop collection payload."""
+    parent = collection.get("parent")
+    if isinstance(parent, dict):
+        for key in ("$id", "_id", "id"):
+            parent_id = _normalize_collection_id(parent.get(key))
+            if parent_id is not None:
+                return parent_id
+        return None
+    if parent is not None:
+        parent_id = _normalize_collection_id(parent)
+        if parent_id is not None:
+            return parent_id
+
+    for key in ("parentId", "parent_id"):
+        parent_id = _normalize_collection_id(collection.get(key))
+        if parent_id is not None:
+            return parent_id
+    return None
+
+
+def _collection_sort_key(collection: dict[str, object]) -> tuple[str, str]:
+    """Build a stable sort key for Raindrop collections."""
+    title = str(collection.get("title", "")).strip().lower()
+    collection_id = str(collection.get("_id", ""))
+    return title, collection_id
+
+
+def _format_collection_label(collection: dict[str, object]) -> str:
+    """Format a collection label for tree output."""
+    title = str(collection.get("title", "")).strip() or "(untitled)"
+    collection_id = collection.get("_id", "?")
+    count = collection.get("count", "?")
+    return f"{title} [dim](id: {collection_id}, items: {count})[/dim]"
+
+
+def _build_collections_tree(raw_collections: list[dict]) -> Tree:
+    """Render Raindrop collections as a hierarchy tree."""
+    tree = Tree("Raindrop.io Collections")
+    if not raw_collections:
+        tree.add("[dim](no collections)[/dim]")
+        return tree
+
+    normalized_ids = [_normalize_collection_id(c.get("_id")) for c in raw_collections]
+    parent_ids = [_get_parent_collection_id(c) for c in raw_collections]
+    known_ids = {cid for cid in normalized_ids if cid is not None}
+
+    children_by_parent: dict[int, list[int]] = {}
+    for index, parent_id in enumerate(parent_ids):
+        if parent_id is not None:
+            children_by_parent.setdefault(parent_id, []).append(index)
+
+    def sorted_indices(indices: list[int]) -> list[int]:
+        return sorted(indices, key=lambda i: _collection_sort_key(raw_collections[i]))
+
+    processed: set[int] = set()
+
+    def add_node(branch: Tree, index: int, path: set[int]) -> None:
+        processed.add(index)
+        node = branch.add(_format_collection_label(raw_collections[index]))
+
+        collection_id = normalized_ids[index]
+        if collection_id is None or collection_id in path:
+            return
+
+        for child_index in sorted_indices(children_by_parent.get(collection_id, [])):
+            if child_index not in processed:
+                add_node(node, child_index, path | {collection_id})
+
+    root_indices = [
+        index
+        for index, parent_id in enumerate(parent_ids)
+        if parent_id is None or parent_id not in known_ids
+    ]
+
+    for root_index in sorted_indices(root_indices):
+        add_node(tree, root_index, set())
+
+    remaining_indices = [index for index in range(len(raw_collections)) if index not in processed]
+    if remaining_indices:
+        fallback = tree.add("[yellow]Unlinked collections[/yellow]")
+        for index in sorted_indices(remaining_indices):
+            add_node(fallback, index, set())
+
+    return tree
