@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 import httpx
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
@@ -175,6 +177,7 @@ class RaindropClient:
         collection_id: int | None = None,
         tags: list[str] | None = None,
         batch: bool = True,
+        dedupe: bool = True,
     ) -> ImportResult:
         """Import a list of Instagram saved items into Raindrop.io.
 
@@ -183,6 +186,8 @@ class RaindropClient:
             collection_id: Optional Raindrop collection ID.
             tags: Tags to apply to each bookmark.
             batch: Use batch API (faster) or one-by-one.
+            dedupe: Skip items that already exist in the target collection and
+                avoid duplicate links within the same import payload.
 
         Returns:
             An ``ImportResult`` with counts and any errors.
@@ -197,12 +202,101 @@ class RaindropClient:
             for item in items
         ]
 
+        if dedupe:
+            payloads, skipped = self._dedupe_payloads(payloads, collection_id=collection_id)
+            result.skipped += skipped
+            if skipped > 0:
+                console.print(
+                    f"  [yellow]Skipped[/yellow] [bold]{skipped}[/bold] duplicate "
+                    f"item{'s' if skipped != 1 else ''}."
+                )
+
+        if not payloads:
+            return result
+
         if batch:
             result = self._import_batch(payloads, result)
         else:
             result = self._import_single(payloads, result)
 
         return result
+
+    def _dedupe_payloads(
+        self,
+        payloads: list[RaindropCreatePayload],
+        *,
+        collection_id: int | None,
+    ) -> tuple[list[RaindropCreatePayload], int]:
+        """Remove duplicate links against existing and in-flight payloads."""
+        existing_links = self._existing_links(collection_id) if collection_id is not None else set()
+        seen_links: set[str] = set()
+        filtered: list[RaindropCreatePayload] = []
+        skipped = 0
+
+        for payload in payloads:
+            normalized = self._normalize_link(payload.link)
+            if normalized in existing_links or normalized in seen_links:
+                skipped += 1
+                continue
+            seen_links.add(normalized)
+            filtered.append(payload)
+
+        return filtered, skipped
+
+    def _existing_links(self, collection_id: int) -> set[str]:
+        """Fetch existing links for a collection to prevent duplicate imports."""
+        existing: set[str] = set()
+        page = 0
+        per_page = 50
+
+        while True:
+            try:
+                resp = self._client.get(
+                    f"/raindrops/{collection_id}",
+                    params={"page": page, "perpage": per_page},
+                )
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                console.print(
+                    "[yellow]Warning:[/yellow] Could not prefetch existing "
+                    f"Raindrops for collection {collection_id}: {exc}"
+                )
+                return set()
+
+            data = resp.json()
+            items: list[dict] = data.get("items", [])
+            if not items:
+                break
+
+            for item in items:
+                link = item.get("link")
+                if isinstance(link, str) and link:
+                    existing.add(self._normalize_link(link))
+
+            if len(items) < per_page:
+                break
+            page += 1
+
+        return existing
+
+    @staticmethod
+    def _normalize_link(link: str) -> str:
+        """Normalize links for stable duplicate checks."""
+        parsed = urlsplit(link.strip())
+        filtered_query = [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_") and key.lower() != "igshid"
+        ]
+        normalized_path = parsed.path.rstrip("/") or "/"
+        normalized = parsed._replace(
+            scheme=parsed.scheme.lower(),
+            netloc=parsed.netloc.lower(),
+            path=normalized_path,
+            query=urlencode(filtered_query, doseq=True),
+            fragment="",
+        )
+        return urlunsplit(normalized)
 
     def _import_batch(
         self, payloads: list[RaindropCreatePayload], result: ImportResult

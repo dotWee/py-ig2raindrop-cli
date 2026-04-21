@@ -77,6 +77,46 @@ class TestImportItems:
         assert result.total == 0
         assert result.created == 0
 
+    def test_skips_existing_duplicates_by_default(
+        self, httpx_mock, mock_client: RaindropClient
+    ) -> None:
+        """Already existing links in the collection are skipped by default."""
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/raindrops/42?page=0&perpage=50",
+            json={"result": True, "items": [{"link": "https://example.com/1"}]},
+        )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/raindrops",
+            json={"result": True, "items": [{"_id": 2}]},
+        )
+        items = [
+            InstagramSavedItem(href="https://example.com/1"),
+            InstagramSavedItem(href="https://example.com/2"),
+        ]
+        result = mock_client.import_items(items, collection_id=42, batch=True)
+        assert result.created == 1
+        assert result.skipped == 1
+
+    def test_skips_duplicates_within_same_import(
+        self, httpx_mock, mock_client: RaindropClient
+    ) -> None:
+        """Duplicate links in the same payload are imported once."""
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/raindrops/42?page=0&perpage=50",
+            json={"result": True, "items": []},
+        )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/raindrops",
+            json={"result": True, "items": [{"_id": 1}]},
+        )
+        items = [
+            InstagramSavedItem(href="https://example.com/same"),
+            InstagramSavedItem(href="https://example.com/same/"),
+        ]
+        result = mock_client.import_items(items, collection_id=42, batch=True)
+        assert result.created == 1
+        assert result.skipped == 1
+
 
 class TestGetCollections:
     def test_list_collections(self, httpx_mock, mock_client: RaindropClient) -> None:

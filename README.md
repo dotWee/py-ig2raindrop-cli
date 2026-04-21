@@ -102,6 +102,9 @@ ig2raindrop sync --dry-run
 ig2raindrop sync -c /path/to/config.toml
 ```
 
+By default, imports skip duplicates so links that already exist in the target
+Raindrop collection are not added again.
+
 #### Mapping Instagram collections to Raindrop sub-collections
 
 When `map_ig_collections` is enabled (via config or `--map-ig-collections`),
