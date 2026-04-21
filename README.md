@@ -4,11 +4,47 @@ Sync Instagram saved posts to [Raindrop.io](https://raindrop.io) bookmarks — e
 
 Follows the same CLI and configuration patterns as [x2raindrop-cli](https://github.com/dotWee/py-x2raindrop-cli).
 
+## Features
+
+- Sync saved Instagram posts directly via the Instagram API.
+- Import from Instagram JSON exports (`saved_posts.json`).
+- Map Instagram collections to Raindrop sub-collections automatically.
+- Skip duplicate links by default to avoid duplicate Raindrops.
+- Add custom tags and optional collection targeting during import.
+- Preview changes with dry-run mode before creating bookmarks.
+- Use batch or one-by-one import modes.
+- Support Instagram session reuse and optional TOTP-based 2FA login.
+
 ## Installation
+
+### Install from PyPI
+
+```bash
+# Using uv (recommended)
+uv tool install ig2raindrop-cli
+
+# Or with pip
+pip install ig2raindrop-cli
+```
+
+After installation, run the CLI with:
+
+```bash
+ig2raindrop --version
+ig2raindrop --help
+```
+
+If you installed with `uv tool`, you can also run it without a global install:
+
+```bash
+uvx ig2raindrop --help
+```
+
+### Install from source
 
 ```bash
 # Clone and install with uv
-git clone <repo-url>
+git clone https://github.com/dotWee/py-ig2raindrop-cli.git
 cd ig2raindrop-cli
 uv sync --all-groups
 ```
