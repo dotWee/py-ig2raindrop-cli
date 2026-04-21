@@ -205,7 +205,7 @@ uv run pytest --tb=short -q
 
 ## Release
 
-The release workflow runs when a semantic version tag is pushed (for example `v1.0.0`).
+The release workflow runs when a semantic version tag is pushed (for example `v1.0.1`).
 It will:
 
 - create a GitHub release with generated notes
@@ -226,10 +226,10 @@ uv run pytest
 
 # 2) Commit release changes (including version bump)
 git add .
-git commit -m "release: prepare v1.0.0"
+git commit -m "release: prepare v1.0.1"
 
 # 3) Create and push tag
-git tag v1.0.0
+git tag v1.0.1
 git push origin main --tags
 ```
 
