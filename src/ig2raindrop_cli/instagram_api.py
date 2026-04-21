@@ -106,11 +106,84 @@ class InstagramClient:
 
         amount = max_count if max_count > 0 else 0
         medias: list[Media] = self._client.collection_medias("saved", amount=amount)
-
-        items = [self._media_to_item(m) for m in medias]
+        total = len(medias)
+        console.print(f"  Processing [bold]{total}[/bold] fetched posts…")
+        items: list[InstagramSavedItem] = []
+        for index, media in enumerate(medias, start=1):
+            items.append(self._media_to_item(media))
+            self._print_progress(index, total, "saved posts")
 
         console.print(f"  Fetched [bold green]{len(items)}[/bold green] saved posts.")
         return InstagramExport(items=items)
+
+    def fetch_saved_posts_with_collections(self, *, max_count: int = 0) -> InstagramExport:
+        """Fetch saved posts and annotate each with its Instagram collection.
+
+        Fetches the "All Posts" collection first, then iterates over every
+        named Instagram saved collection and tags matching items with the
+        collection name. Items that are not in any named collection keep
+        ``collection_name`` set to ``None``. If a post belongs to multiple
+        named collections, the last one iterated wins.
+
+        Args:
+            max_count: Maximum number of posts to fetch from "All Posts".
+                0 = all. Named collections are always fetched in full so
+                every item found in "All Posts" can be annotated.
+
+        Returns:
+            An ``InstagramExport`` with items enriched by ``collection_name``.
+        """
+        console.print("  Fetching saved posts…")
+
+        amount = max_count if max_count > 0 else 0
+        medias: list[Media] = self._client.collection_medias("saved", amount=amount)
+        total_saved = len(medias)
+        console.print(f"  Processing [bold]{total_saved}[/bold] fetched posts…")
+
+        items_by_pk: dict[str, InstagramSavedItem] = {}
+        for index, media in enumerate(medias, start=1):
+            items_by_pk[str(media.pk)] = self._media_to_item(media)
+            self._print_progress(index, total_saved, "saved posts")
+
+        console.print(f"  Fetched [bold green]{len(items_by_pk)}[/bold green] saved posts.")
+
+        try:
+            collections = self._client.collections()
+        except Exception as exc:
+            console.print(f"  [yellow]Could not list collections: {exc}[/yellow]")
+            return InstagramExport(items=list(items_by_pk.values()))
+
+        named_collections = [col for col in collections if col.name.lower() != "all posts"]
+        total_collections = len(named_collections)
+        console.print(
+            f"  Checking [bold]{total_collections}[/bold] Instagram collection"
+            f"{'s' if total_collections != 1 else ''} for mapping…"
+        )
+
+        for collection_index, col in enumerate(named_collections, start=1):
+            if col.name.lower() == "all posts":
+                continue
+            console.print(
+                f"  Scanning [cyan]{col.name}[/cyan] ({collection_index}/{total_collections})…"
+            )
+            try:
+                col_medias = self._client.collection_medias(col.id, amount=0)
+            except Exception as exc:
+                console.print(f"  [yellow]Skipping '{col.name}' (fetch failed: {exc})[/yellow]")
+                continue
+
+            collection_total = len(col_medias)
+            for media_index, media in enumerate(col_medias, start=1):
+                pk = str(media.pk)
+                if pk in items_by_pk:
+                    items_by_pk[pk].collection_name = col.name
+                else:
+                    item = self._media_to_item(media)
+                    item.collection_name = col.name
+                    items_by_pk[pk] = item
+                self._print_progress(media_index, collection_total, f"items in '{col.name}'")
+
+        return InstagramExport(items=list(items_by_pk.values()))
 
     def fetch_saved_collection(self, name: str, *, max_count: int = 0) -> InstagramExport:
         """Fetch saved posts from a named Instagram saved collection.
@@ -141,8 +214,15 @@ class InstagramClient:
 
         amount = max_count if max_count > 0 else 0
         medias = self._client.collection_medias(target.id, amount=amount)
+        total = len(medias)
+        console.print(f"  Processing [bold]{total}[/bold] fetched items…")
 
-        items = [self._media_to_item(m) for m in medias]
+        items: list[InstagramSavedItem] = []
+        for index, media in enumerate(medias, start=1):
+            item = self._media_to_item(media)
+            item.collection_name = target.name
+            items.append(item)
+            self._print_progress(index, total, f"items in '{target.name}'")
 
         console.print(f"  Fetched [bold green]{len(items)}[/bold green] items.")
         return InstagramExport(items=items)
@@ -159,6 +239,20 @@ class InstagramClient:
         ]
 
     # ── Helpers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _print_progress(current: int, total: int, label: str) -> None:
+        """Print throttled progress updates for long-running loops."""
+        if total <= 0:
+            return
+        # Keep output useful but concise: always first/last, and then every 100
+        # processed items (or every 25 for small batches).
+        step = 25 if total <= 250 else 100
+        if current == 1 or current == total or current % step == 0:
+            percentage = (current / total) * 100
+            console.print(
+                f"    {label}: [bold]{current}/{total}[/bold] [dim]({percentage:.1f}%)[/dim]"
+            )
 
     @staticmethod
     def _media_to_item(media: Media) -> InstagramSavedItem:

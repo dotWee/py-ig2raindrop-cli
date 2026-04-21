@@ -61,6 +61,7 @@ ig_collection = ""
 tags = ["instagram", "saved"]
 max_count = 0
 no_batch = false
+map_ig_collections = false
 dry_run = false
 ```
 
@@ -90,12 +91,31 @@ ig2raindrop sync --ig-collection "Travel"
 # Limit to 50 posts
 ig2raindrop sync --max 50
 
+# Mirror Instagram collections into Raindrop sub-collections
+# under the configured parent `collection_id`
+ig2raindrop sync --map-ig-collections
+
 # Dry run (preview only)
 ig2raindrop sync --dry-run
 
 # Use a custom config file
 ig2raindrop sync -c /path/to/config.toml
 ```
+
+#### Mapping Instagram collections to Raindrop sub-collections
+
+When `map_ig_collections` is enabled (via config or `--map-ig-collections`),
+saved posts are grouped by their Instagram collection name and routed into
+sub-collections under the configured parent `collection_id`:
+
+- Existing sub-collections whose title matches an Instagram collection name
+  are reused.
+- Missing sub-collections are created automatically under the parent.
+- Saved posts that are not in any Instagram collection land directly in the
+  parent collection.
+
+A valid `sync.collection_id` is required for this mode; otherwise the sync
+falls back to a flat import.
 
 ### `import-file` — Import from a JSON data export
 

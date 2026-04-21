@@ -19,6 +19,35 @@ BATCH_SIZE = 50  # Raindrop API batch limit
 console = Console(stderr=True)
 
 
+def _normalize_id(value: object) -> int | None:
+    """Normalize an arbitrary Raindrop ID value to an integer."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _parent_id(collection: dict) -> int | None:
+    """Extract the parent collection ID from a Raindrop collection payload."""
+    parent = collection.get("parent")
+    if isinstance(parent, dict):
+        for key in ("$id", "_id", "id"):
+            parent_id = _normalize_id(parent.get(key))
+            if parent_id is not None:
+                return parent_id
+        return None
+    if parent is not None:
+        parent_id = _normalize_id(parent)
+        if parent_id is not None:
+            return parent_id
+    for key in ("parentId", "parent_id"):
+        parent_id = _normalize_id(collection.get(key))
+        if parent_id is not None:
+            return parent_id
+    return None
+
+
 class RaindropClient:
     """Thin wrapper around the Raindrop.io REST API."""
 
@@ -70,14 +99,59 @@ class RaindropClient:
         for col in collections:
             if col.get("title", "").lower() == title.lower():
                 return col["_id"]
+        return self.create_collection(title)
 
-        # Create new collection
-        resp = self._client.post("/collection", json={"title": title})
+    def create_collection(self, title: str, *, parent_id: int | None = None) -> int:
+        """Create a new Raindrop collection, optionally as a sub-collection.
+
+        Args:
+            title: Title for the new collection.
+            parent_id: Optional parent collection ID. When provided the new
+                collection is created nested under that collection.
+
+        Returns:
+            The ID of the newly created collection.
+        """
+        payload: dict[str, object] = {"title": title}
+        if parent_id is not None:
+            payload["parent"] = {"$id": parent_id}
+
+        resp = self._client.post("/collection", json=payload)
         resp.raise_for_status()
         data = resp.json()
         if data.get("result"):
-            return data["item"]["_id"]
+            return int(data["item"]["_id"])
         raise RuntimeError(f"Failed to create collection '{title}': {data}")
+
+    def find_or_create_sub_collection(
+        self,
+        title: str,
+        *,
+        parent_id: int,
+        collections: list[dict] | None = None,
+    ) -> int:
+        """Find a sub-collection by title under ``parent_id`` or create it.
+
+        Args:
+            title: Title of the sub-collection.
+            parent_id: ID of the parent Raindrop collection.
+            collections: Optional pre-fetched list of all collections. When
+                provided the lookup avoids an extra API call.
+
+        Returns:
+            The ID of the existing or newly created sub-collection.
+        """
+        if collections is None:
+            collections = self.get_collections()
+
+        title_lower = title.strip().lower()
+        for col in collections:
+            if str(col.get("title", "")).strip().lower() != title_lower:
+                continue
+            if _parent_id(col) == parent_id:
+                return int(col["_id"])
+
+        return self.create_collection(title, parent_id=parent_id)
 
     def create_raindrop(self, payload: RaindropCreatePayload) -> RaindropResponse:
         """Create a single raindrop (bookmark)."""

@@ -92,7 +92,9 @@ class TestGetCollections:
         assert len(cols) == 1
         assert cols[0]["title"] == "Instagram"
 
-    def test_list_collections_includes_children(self, httpx_mock, mock_client: RaindropClient) -> None:
+    def test_list_collections_includes_children(
+        self, httpx_mock, mock_client: RaindropClient
+    ) -> None:
         httpx_mock.add_response(
             url="https://api.raindrop.io/rest/v1/collections",
             json={"result": True, "items": [{"_id": 1, "title": "Root"}]},
@@ -147,3 +149,81 @@ class TestGetCollections:
         )
         cid = mock_client.find_or_create_collection("NewCol")
         assert cid == 99
+
+
+class TestCreateCollection:
+    def test_creates_root_collection(self, httpx_mock, mock_client: RaindropClient) -> None:
+        """Creating a collection without a parent posts just the title."""
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collection",
+            json={"result": True, "item": {"_id": 7, "title": "Flat"}},
+        )
+        cid = mock_client.create_collection("Flat")
+        assert cid == 7
+
+        request = httpx_mock.get_requests()[-1]
+        assert b'"parent"' not in request.content
+
+    def test_creates_sub_collection_with_parent(
+        self, httpx_mock, mock_client: RaindropClient
+    ) -> None:
+        """Parent ID is serialized as a nested ``$id`` payload."""
+        import json
+
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collection",
+            json={"result": True, "item": {"_id": 55, "title": "Tracks"}},
+        )
+        cid = mock_client.create_collection("Tracks", parent_id=42)
+        assert cid == 55
+
+        request = httpx_mock.get_requests()[-1]
+        body = json.loads(request.content)
+        assert body == {"title": "Tracks", "parent": {"$id": 42}}
+
+
+class TestFindOrCreateSubCollection:
+    def test_reuses_existing_sub_collection(self, httpx_mock, mock_client: RaindropClient) -> None:
+        """Return existing sub-collection id without creating a new one."""
+        collections = [
+            {"_id": 10, "title": "Parent"},
+            {"_id": 20, "title": "Tracks", "parent": {"$id": 10}},
+        ]
+        cid = mock_client.find_or_create_sub_collection(
+            "tracks", parent_id=10, collections=collections
+        )
+        assert cid == 20
+        assert httpx_mock.get_requests() == []
+
+    def test_creates_when_parent_differs(self, httpx_mock, mock_client: RaindropClient) -> None:
+        """A same-named collection under a different parent is not reused."""
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collection",
+            json={"result": True, "item": {"_id": 77, "title": "Tracks"}},
+        )
+        collections = [
+            {"_id": 10, "title": "Parent"},
+            {"_id": 20, "title": "Tracks", "parent": {"$id": 99}},
+        ]
+        cid = mock_client.find_or_create_sub_collection(
+            "Tracks", parent_id=10, collections=collections
+        )
+        assert cid == 77
+
+    def test_fetches_collections_when_not_provided(
+        self, httpx_mock, mock_client: RaindropClient
+    ) -> None:
+        """Falls back to ``get_collections`` when no list is passed."""
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections",
+            json={"result": True, "items": [{"_id": 10, "title": "Parent"}]},
+        )
+        httpx_mock.add_response(
+            url="https://api.raindrop.io/rest/v1/collections/childrens",
+            json={
+                "result": True,
+                "items": [{"_id": 21, "title": "Memes", "parent": {"$id": 10}}],
+            },
+        )
+        cid = mock_client.find_or_create_sub_collection("Memes", parent_id=10)
+        assert cid == 21

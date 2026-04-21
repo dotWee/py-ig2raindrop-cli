@@ -24,7 +24,7 @@ from .config import (
 )
 from .instagram import parse_saved_posts
 from .instagram_api import InstagramClient
-from .models import ImportResult, InstagramExport
+from .models import ImportResult, InstagramExport, InstagramSavedItem
 from .raindrop import RaindropClient
 
 # ── App & sub-apps ───────────────────────────────────────────────────
@@ -120,6 +120,13 @@ def sync(
             help="Import one-by-one instead of batches",
         ),
     ] = False,
+    map_ig_collections: Annotated[
+        bool,
+        typer.Option(
+            "--map-ig-collections/--no-map-ig-collections",
+            help="Map Instagram collections to Raindrop sub-collections",
+        ),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -148,6 +155,8 @@ def sync(
             settings.sync.max_count = max_count
         if no_batch:
             settings.sync.no_batch = True
+        if map_ig_collections:
+            settings.sync.map_ig_collections = True
         if dry_run:
             settings.sync.dry_run = True
 
@@ -184,6 +193,7 @@ def sync(
             "Raindrop Collection",
             str(settings.sync.collection_id or settings.sync.collection_title or "(unsorted)"),
         )
+        table.add_row("Map IG Collections", "yes" if settings.sync.map_ig_collections else "no")
         console.print(table)
         console.print()
 
@@ -208,6 +218,8 @@ def sync(
             export = ig_client.fetch_saved_collection(
                 settings.sync.ig_collection, max_count=settings.sync.max_count
             )
+        elif settings.sync.map_ig_collections:
+            export = ig_client.fetch_saved_posts_with_collections(max_count=settings.sync.max_count)
         else:
             export = ig_client.fetch_saved_posts(max_count=settings.sync.max_count)
 
@@ -623,6 +635,7 @@ def config_show(
             "Max Count", str(settings.sync.max_count) if settings.sync.max_count else "all"
         )
         table.add_row("No Batch", str(settings.sync.no_batch))
+        table.add_row("Map IG Collections", str(settings.sync.map_ig_collections))
         table.add_row("Dry Run", str(settings.sync.dry_run))
 
         console.print(table)
@@ -651,6 +664,8 @@ def _import_to_raindrop(export: InstagramExport, settings: Settings) -> None:
 
     if settings.sync.dry_run:
         _show_preview(export.items[:20], settings.sync.tags, export.count)
+        if settings.sync.map_ig_collections:
+            _show_collection_mapping_preview(export.items)
         raise typer.Exit(code=0)
 
     # Validate Raindrop token
@@ -677,17 +692,92 @@ def _import_to_raindrop(export: InstagramExport, settings: Settings) -> None:
             collection_id = client.find_or_create_collection(settings.sync.collection_title)
             console.print(f"  Using collection ID [bold]{collection_id}[/bold]\n")
 
-        result = client.import_items(
-            export.items,
-            collection_id=collection_id,
-            tags=settings.sync.tags,
-            batch=not settings.sync.no_batch,
-        )
+        if settings.sync.map_ig_collections and collection_id:
+            result = _import_grouped_by_ig_collection(client, export.items, collection_id, settings)
+        else:
+            if settings.sync.map_ig_collections and not collection_id:
+                console.print(
+                    "[yellow]Warning:[/yellow] map_ig_collections requires a parent "
+                    "collection_id. Falling back to a flat import.\n"
+                )
+            result = client.import_items(
+                export.items,
+                collection_id=collection_id,
+                tags=settings.sync.tags,
+                batch=not settings.sync.no_batch,
+            )
 
     _show_results(result)
 
     if result.failed > 0:
         raise typer.Exit(code=1)
+
+
+def _group_items_by_collection(
+    items: list[InstagramSavedItem],
+) -> dict[str | None, list[InstagramSavedItem]]:
+    """Group Instagram saved items by their ``collection_name``."""
+    groups: dict[str | None, list[InstagramSavedItem]] = {}
+    for item in items:
+        groups.setdefault(item.collection_name, []).append(item)
+    return groups
+
+
+def _import_grouped_by_ig_collection(
+    client: RaindropClient,
+    items: list[InstagramSavedItem],
+    parent_id: int,
+    settings: Settings,
+) -> ImportResult:
+    """Import items into Raindrop sub-collections named after IG collections.
+
+    Items without an Instagram collection go directly into the parent
+    collection. Existing sub-collections are reused by title, new ones are
+    created on demand.
+    """
+    aggregate = ImportResult(total=len(items))
+    groups = _group_items_by_collection(items)
+
+    console.print(
+        f"[bold]Mapping[/bold] {len(groups)} Instagram "
+        f"collection{'s' if len(groups) != 1 else ''} into Raindrop sub-collections…"
+    )
+
+    all_collections = client.get_collections()
+    known_ids = {c.get("_id") for c in all_collections}
+
+    for col_name, grouped in sorted(groups.items(), key=lambda kv: (kv[0] is None, kv[0] or "")):
+        if col_name:
+            target_id = client.find_or_create_sub_collection(
+                col_name,
+                parent_id=parent_id,
+                collections=all_collections,
+            )
+            if target_id not in known_ids:
+                all_collections = client.get_collections()
+                known_ids = {c.get("_id") for c in all_collections}
+            console.print(
+                f"  → [cyan]{col_name}[/cyan] [dim](id: {target_id})[/dim]: {len(grouped)} items"
+            )
+        else:
+            target_id = parent_id
+            console.print(
+                f"  → [dim](parent collection, id: {parent_id})[/dim]: "
+                f"{len(grouped)} items without IG collection"
+            )
+
+        sub_result = client.import_items(
+            grouped,
+            collection_id=target_id,
+            tags=settings.sync.tags,
+            batch=not settings.sync.no_batch,
+        )
+        aggregate.created += sub_result.created
+        aggregate.skipped += sub_result.skipped
+        aggregate.failed += sub_result.failed
+        aggregate.errors.extend(sub_result.errors)
+
+    return aggregate
 
 
 # ── Display helpers ──────────────────────────────────────────────────
@@ -699,15 +789,35 @@ def _show_preview(items: list, tag_list: list[str], total: int) -> None:
     table.add_column("#", style="dim", width=4)
     table.add_column("URL", style="cyan", no_wrap=True, max_width=70)
     table.add_column("Title", max_width=30)
+    table.add_column("IG Collection", style="magenta", max_width=20)
 
     for i, item in enumerate(items, 1):
-        table.add_row(str(i), item.href, item.title or "—")
+        table.add_row(
+            str(i),
+            item.href,
+            item.title or "—",
+            getattr(item, "collection_name", None) or "—",
+        )
 
     console.print(table)
     if total > 20:
         console.print(f"  … and {total - 20} more items\n")
     console.print(f"  Tags: [bold]{', '.join(tag_list)}[/bold]")
     console.print("\n  [yellow]Dry run — no changes were made.[/yellow]\n")
+
+
+def _show_collection_mapping_preview(items: list[InstagramSavedItem]) -> None:
+    """Show how items would be grouped into Raindrop sub-collections."""
+    groups = _group_items_by_collection(items)
+
+    table = Table(title="Instagram → Raindrop mapping", show_header=True)
+    table.add_column("IG Collection", style="cyan")
+    table.add_column("Items", justify="right", style="bold")
+
+    for col_name, grouped in sorted(groups.items(), key=lambda kv: (kv[0] is None, kv[0] or "")):
+        table.add_row(col_name or "[dim](none — parent collection)[/dim]", str(len(grouped)))
+
+    console.print(table)
 
 
 def _show_results(result: ImportResult) -> None:
