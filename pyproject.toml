@@ -13,7 +13,7 @@ dependencies = [
     "pydantic>=2.13.0",
     "pydantic-settings>=2.14.0",
     "rich>=13.0.0",
-    "instagrapi>=2.3.0",
+    "instagrapi>=2.4.3",
     "tomli-w>=1.2.0",
 ]
 license = {file = "LICENSE"}
