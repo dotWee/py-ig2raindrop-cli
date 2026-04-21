@@ -90,6 +90,9 @@ class SyncSettings(BaseSettings):
         max_count: Maximum number of posts to fetch (0 = all).
         no_batch: Import one-by-one instead of batches.
         dry_run: If True, don't make any changes.
+        map_ig_collections: If True, map Instagram collections to Raindrop
+            sub-collections under ``collection_id``. Existing sub-collections
+            are reused by name, missing ones are created automatically.
     """
 
     model_config = SettingsConfigDict(
@@ -107,6 +110,10 @@ class SyncSettings(BaseSettings):
     max_count: int = Field(0, description="Max posts to fetch (0 = all)")
     no_batch: bool = Field(False, description="Import one-by-one instead of batches")
     dry_run: bool = Field(False, description="Dry run mode")
+    map_ig_collections: bool = Field(
+        False,
+        description="Map Instagram collections to Raindrop sub-collections",
+    )
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -197,6 +204,7 @@ def create_default_config(path: Path | None = None) -> Path:
             "max_count": 0,
             "no_batch": False,
             "dry_run": False,
+            "map_ig_collections": False,
         },
     }
 

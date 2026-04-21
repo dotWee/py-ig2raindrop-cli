@@ -6,13 +6,15 @@ Follows the same sub-app structure as x2raindrop-cli.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.tree import Tree
 
 from . import __version__
 from .config import (
@@ -23,7 +25,7 @@ from .config import (
 )
 from .instagram import parse_saved_posts
 from .instagram_api import InstagramClient
-from .models import ImportResult, InstagramExport
+from .models import ImportResult, InstagramExport, InstagramSavedItem
 from .raindrop import RaindropClient
 
 # ── App & sub-apps ───────────────────────────────────────────────────
@@ -119,6 +121,13 @@ def sync(
             help="Import one-by-one instead of batches",
         ),
     ] = False,
+    map_ig_collections: Annotated[
+        bool,
+        typer.Option(
+            "--map-ig-collections/--no-map-ig-collections",
+            help="Map Instagram collections to Raindrop sub-collections",
+        ),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -147,6 +156,8 @@ def sync(
             settings.sync.max_count = max_count
         if no_batch:
             settings.sync.no_batch = True
+        if map_ig_collections:
+            settings.sync.map_ig_collections = True
         if dry_run:
             settings.sync.dry_run = True
 
@@ -183,6 +194,7 @@ def sync(
             "Raindrop Collection",
             str(settings.sync.collection_id or settings.sync.collection_title or "(unsorted)"),
         )
+        table.add_row("Map IG Collections", "yes" if settings.sync.map_ig_collections else "no")
         console.print(table)
         console.print()
 
@@ -207,6 +219,8 @@ def sync(
             export = ig_client.fetch_saved_collection(
                 settings.sync.ig_collection, max_count=settings.sync.max_count
             )
+        elif settings.sync.map_ig_collections:
+            export = ig_client.fetch_saved_posts_with_collections(max_count=settings.sync.max_count)
         else:
             export = ig_client.fetch_saved_posts(max_count=settings.sync.max_count)
 
@@ -523,19 +537,7 @@ def raindrop_collections(
         raw_collections = client.get_collections()
         client.close()
 
-        table = Table(title="Raindrop.io Collections")
-        table.add_column("ID", style="cyan", justify="right")
-        table.add_column("Title", style="green")
-        table.add_column("Items", justify="right")
-
-        for c in sorted(raw_collections, key=lambda x: x.get("title", "").lower()):
-            table.add_row(
-                str(c["_id"]),
-                c.get("title", ""),
-                str(c.get("count", "")),
-            )
-
-        console.print(table)
+        console.print(_build_collections_tree(raw_collections))
         console.print(f"\nTotal: {len(raw_collections)} collections")
 
     except typer.Exit:
@@ -634,6 +636,7 @@ def config_show(
             "Max Count", str(settings.sync.max_count) if settings.sync.max_count else "all"
         )
         table.add_row("No Batch", str(settings.sync.no_batch))
+        table.add_row("Map IG Collections", str(settings.sync.map_ig_collections))
         table.add_row("Dry Run", str(settings.sync.dry_run))
 
         console.print(table)
@@ -662,6 +665,8 @@ def _import_to_raindrop(export: InstagramExport, settings: Settings) -> None:
 
     if settings.sync.dry_run:
         _show_preview(export.items[:20], settings.sync.tags, export.count)
+        if settings.sync.map_ig_collections:
+            _show_collection_mapping_preview(export.items)
         raise typer.Exit(code=0)
 
     # Validate Raindrop token
@@ -688,17 +693,92 @@ def _import_to_raindrop(export: InstagramExport, settings: Settings) -> None:
             collection_id = client.find_or_create_collection(settings.sync.collection_title)
             console.print(f"  Using collection ID [bold]{collection_id}[/bold]\n")
 
-        result = client.import_items(
-            export.items,
-            collection_id=collection_id,
-            tags=settings.sync.tags,
-            batch=not settings.sync.no_batch,
-        )
+        if settings.sync.map_ig_collections and collection_id:
+            result = _import_grouped_by_ig_collection(client, export.items, collection_id, settings)
+        else:
+            if settings.sync.map_ig_collections and not collection_id:
+                console.print(
+                    "[yellow]Warning:[/yellow] map_ig_collections requires a parent "
+                    "collection_id. Falling back to a flat import.\n"
+                )
+            result = client.import_items(
+                export.items,
+                collection_id=collection_id,
+                tags=settings.sync.tags,
+                batch=not settings.sync.no_batch,
+            )
 
     _show_results(result)
 
     if result.failed > 0:
         raise typer.Exit(code=1)
+
+
+def _group_items_by_collection(
+    items: list[InstagramSavedItem],
+) -> dict[str | None, list[InstagramSavedItem]]:
+    """Group Instagram saved items by their ``collection_name``."""
+    groups: dict[str | None, list[InstagramSavedItem]] = {}
+    for item in items:
+        groups.setdefault(item.collection_name, []).append(item)
+    return groups
+
+
+def _import_grouped_by_ig_collection(
+    client: RaindropClient,
+    items: list[InstagramSavedItem],
+    parent_id: int,
+    settings: Settings,
+) -> ImportResult:
+    """Import items into Raindrop sub-collections named after IG collections.
+
+    Items without an Instagram collection go directly into the parent
+    collection. Existing sub-collections are reused by title, new ones are
+    created on demand.
+    """
+    aggregate = ImportResult(total=len(items))
+    groups = _group_items_by_collection(items)
+
+    console.print(
+        f"[bold]Mapping[/bold] {len(groups)} Instagram "
+        f"collection{'s' if len(groups) != 1 else ''} into Raindrop sub-collections…"
+    )
+
+    all_collections = client.get_collections()
+    known_ids = {c.get("_id") for c in all_collections}
+
+    for col_name, grouped in sorted(groups.items(), key=lambda kv: (kv[0] is None, kv[0] or "")):
+        if col_name:
+            target_id = client.find_or_create_sub_collection(
+                col_name,
+                parent_id=parent_id,
+                collections=all_collections,
+            )
+            if target_id not in known_ids:
+                all_collections = client.get_collections()
+                known_ids = {c.get("_id") for c in all_collections}
+            console.print(
+                f"  → [cyan]{col_name}[/cyan] [dim](id: {target_id})[/dim]: {len(grouped)} items"
+            )
+        else:
+            target_id = parent_id
+            console.print(
+                f"  → [dim](parent collection, id: {parent_id})[/dim]: "
+                f"{len(grouped)} items without IG collection"
+            )
+
+        sub_result = client.import_items(
+            grouped,
+            collection_id=target_id,
+            tags=settings.sync.tags,
+            batch=not settings.sync.no_batch,
+        )
+        aggregate.created += sub_result.created
+        aggregate.skipped += sub_result.skipped
+        aggregate.failed += sub_result.failed
+        aggregate.errors.extend(sub_result.errors)
+
+    return aggregate
 
 
 # ── Display helpers ──────────────────────────────────────────────────
@@ -710,15 +790,35 @@ def _show_preview(items: list, tag_list: list[str], total: int) -> None:
     table.add_column("#", style="dim", width=4)
     table.add_column("URL", style="cyan", no_wrap=True, max_width=70)
     table.add_column("Title", max_width=30)
+    table.add_column("IG Collection", style="magenta", max_width=20)
 
     for i, item in enumerate(items, 1):
-        table.add_row(str(i), item.href, item.title or "—")
+        table.add_row(
+            str(i),
+            item.href,
+            item.title or "—",
+            getattr(item, "collection_name", None) or "—",
+        )
 
     console.print(table)
     if total > 20:
         console.print(f"  … and {total - 20} more items\n")
     console.print(f"  Tags: [bold]{', '.join(tag_list)}[/bold]")
     console.print("\n  [yellow]Dry run — no changes were made.[/yellow]\n")
+
+
+def _show_collection_mapping_preview(items: list[InstagramSavedItem]) -> None:
+    """Show how items would be grouped into Raindrop sub-collections."""
+    groups = _group_items_by_collection(items)
+
+    table = Table(title="Instagram → Raindrop mapping", show_header=True)
+    table.add_column("IG Collection", style="cyan")
+    table.add_column("Items", justify="right", style="bold")
+
+    for col_name, grouped in sorted(groups.items(), key=lambda kv: (kv[0] is None, kv[0] or "")):
+        table.add_row(col_name or "[dim](none — parent collection)[/dim]", str(len(grouped)))
+
+    console.print(table)
 
 
 def _show_results(result: ImportResult) -> None:
@@ -744,3 +844,100 @@ def _show_results(result: ImportResult) -> None:
             console.print(f"  • {err}")
         if len(result.errors) > 10:
             console.print(f"  … and {len(result.errors) - 10} more errors")
+
+
+def _normalize_collection_id(value: object) -> int | None:
+    """Normalize an arbitrary collection ID value to an integer."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _get_parent_collection_id(collection: Mapping[str, object]) -> int | None:
+    """Extract the parent collection ID from a Raindrop collection payload."""
+    parent = collection.get("parent")
+    if isinstance(parent, Mapping):
+        parent_mapping = cast(Mapping[str, object], parent)
+        for key in ("$id", "_id", "id"):
+            parent_id = _normalize_collection_id(parent_mapping.get(key))
+            if parent_id is not None:
+                return parent_id
+        return None
+    if parent is not None:
+        parent_id = _normalize_collection_id(parent)
+        if parent_id is not None:
+            return parent_id
+
+    for key in ("parentId", "parent_id"):
+        parent_id = _normalize_collection_id(collection.get(key))
+        if parent_id is not None:
+            return parent_id
+    return None
+
+
+def _collection_sort_key(collection: Mapping[str, object]) -> tuple[str, str]:
+    """Build a stable sort key for Raindrop collections."""
+    title = str(collection.get("title", "")).strip().lower()
+    collection_id = str(collection.get("_id", ""))
+    return title, collection_id
+
+
+def _format_collection_label(collection: Mapping[str, object]) -> str:
+    """Format a collection label for tree output."""
+    title = str(collection.get("title", "")).strip() or "(untitled)"
+    collection_id = collection.get("_id", "?")
+    count = collection.get("count", "?")
+    return f"{title} [dim](id: {collection_id}, items: {count})[/dim]"
+
+
+def _build_collections_tree(raw_collections: list[dict]) -> Tree:
+    """Render Raindrop collections as a hierarchy tree."""
+    tree = Tree("Raindrop.io Collections")
+    if not raw_collections:
+        tree.add("[dim](no collections)[/dim]")
+        return tree
+
+    normalized_ids = [_normalize_collection_id(c.get("_id")) for c in raw_collections]
+    parent_ids = [_get_parent_collection_id(c) for c in raw_collections]
+    known_ids = {cid for cid in normalized_ids if cid is not None}
+
+    children_by_parent: dict[int, list[int]] = {}
+    for index, parent_id in enumerate(parent_ids):
+        if parent_id is not None:
+            children_by_parent.setdefault(parent_id, []).append(index)
+
+    def sorted_indices(indices: list[int]) -> list[int]:
+        return sorted(indices, key=lambda i: _collection_sort_key(raw_collections[i]))
+
+    processed: set[int] = set()
+
+    def add_node(branch: Tree, index: int, path: set[int]) -> None:
+        processed.add(index)
+        node = branch.add(_format_collection_label(raw_collections[index]))
+
+        collection_id = normalized_ids[index]
+        if collection_id is None or collection_id in path:
+            return
+
+        for child_index in sorted_indices(children_by_parent.get(collection_id, [])):
+            if child_index not in processed:
+                add_node(node, child_index, path | {collection_id})
+
+    root_indices = [
+        index
+        for index, parent_id in enumerate(parent_ids)
+        if parent_id is None or parent_id not in known_ids
+    ]
+
+    for root_index in sorted_indices(root_indices):
+        add_node(tree, root_index, set())
+
+    remaining_indices = [index for index in range(len(raw_collections)) if index not in processed]
+    if remaining_indices:
+        fallback = tree.add("[yellow]Unlinked collections[/yellow]")
+        for index in sorted_indices(remaining_indices):
+            add_node(fallback, index, set())
+
+    return tree

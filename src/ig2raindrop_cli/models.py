@@ -17,6 +17,8 @@ class InstagramSavedItem(BaseModel):
     href: str
     title: str = ""
     timestamp: int = 0
+    collection_name: str | None = None
+    """Name of the Instagram saved collection the item belongs to (if any)."""
 
     @property
     def saved_at(self) -> datetime:

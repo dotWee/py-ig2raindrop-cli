@@ -17,12 +17,14 @@ def _make_media(
     code: str = "ABC123",
     caption_text: str | None = "test caption",
     taken_at: datetime | None = None,
+    pk: int | str | None = None,
 ) -> MagicMock:
     """Create a fake instagrapi Media object."""
     media = MagicMock()
     media.code = code
     media.caption_text = caption_text
     media.taken_at = taken_at or datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+    media.pk = pk if pk is not None else code
     return media
 
 
@@ -132,6 +134,94 @@ class TestFetchSavedPosts:
         assert export.count == 0
 
 
+# ── fetch_saved_posts_with_collections tests ────────────────────────
+
+
+class TestFetchSavedPostsWithCollections:
+    @patch("ig2raindrop_cli.instagram_api.Client")
+    def test_annotates_items_with_collection_name(self, mock_client_cls: MagicMock) -> None:
+        """Items appearing in a named collection get ``collection_name`` set."""
+        mock_ig = mock_client_cls.return_value
+
+        all_medias = [
+            _make_media(code="A1", pk="1"),
+            _make_media(code="B2", pk="2"),
+            _make_media(code="C3", pk="3"),
+        ]
+        tracks_medias = [_make_media(code="B2", pk="2")]
+
+        def collection_medias_side_effect(
+            collection_id: str | int,
+            amount: int = 0,  # noqa: ARG001
+        ) -> list:
+            if collection_id == "saved":
+                return all_medias
+            if collection_id == 42:
+                return tracks_medias
+            return []
+
+        mock_ig.collection_medias.side_effect = collection_medias_side_effect
+        mock_ig.collections.return_value = [
+            _make_collection(pk=42, name="Tracks"),
+            _make_collection(pk=99, name="All Posts"),
+        ]
+
+        client = InstagramClient("user", "pass")
+        client._client = mock_ig
+        export = client.fetch_saved_posts_with_collections()
+
+        assert export.count == 3
+        by_href = {item.href: item for item in export.items}
+        assert by_href["https://www.instagram.com/p/B2/"].collection_name == "Tracks"
+        assert by_href["https://www.instagram.com/p/A1/"].collection_name is None
+        assert by_href["https://www.instagram.com/p/C3/"].collection_name is None
+
+    @patch("ig2raindrop_cli.instagram_api.Client")
+    def test_handles_collection_listing_failure(self, mock_client_cls: MagicMock) -> None:
+        """If listing collections fails, return the All-Posts items unannotated."""
+        mock_ig = mock_client_cls.return_value
+        mock_ig.collection_medias.return_value = [_make_media(code="A1", pk="1")]
+        mock_ig.collections.side_effect = RuntimeError("boom")
+
+        client = InstagramClient("user", "pass")
+        client._client = mock_ig
+        export = client.fetch_saved_posts_with_collections()
+
+        assert export.count == 1
+        assert export.items[0].collection_name is None
+
+    @patch("ig2raindrop_cli.instagram_api.Client")
+    def test_skips_named_collection_on_fetch_error(self, mock_client_cls: MagicMock) -> None:
+        """Named collections that raise during fetch are skipped, others still work."""
+        mock_ig = mock_client_cls.return_value
+
+        def collection_medias_side_effect(
+            collection_id: str | int,
+            amount: int = 0,  # noqa: ARG001
+        ) -> list:
+            if collection_id == "saved":
+                return [_make_media(code="A1", pk="1"), _make_media(code="B2", pk="2")]
+            if collection_id == 1:
+                raise RuntimeError("broken")
+            if collection_id == 2:
+                return [_make_media(code="B2", pk="2")]
+            return []
+
+        mock_ig.collection_medias.side_effect = collection_medias_side_effect
+        mock_ig.collections.return_value = [
+            _make_collection(pk=1, name="Broken"),
+            _make_collection(pk=2, name="Working"),
+        ]
+
+        client = InstagramClient("user", "pass")
+        client._client = mock_ig
+        export = client.fetch_saved_posts_with_collections()
+
+        by_href = {item.href: item for item in export.items}
+        assert by_href["https://www.instagram.com/p/B2/"].collection_name == "Working"
+        assert by_href["https://www.instagram.com/p/A1/"].collection_name is None
+
+
 # ── fetch_saved_collection tests ─────────────────────────────────────
 
 
@@ -163,6 +253,22 @@ class TestFetchSavedCollection:
         client.fetch_saved_collection("TRAVEL")
 
         mock_ig.collection_medias.assert_called_once_with(10, amount=0)
+
+    @patch("ig2raindrop_cli.instagram_api.Client")
+    def test_annotates_items_with_collection_name(self, mock_client_cls: MagicMock) -> None:
+        """``fetch_saved_collection`` tags each item with its collection name."""
+        mock_ig = mock_client_cls.return_value
+        mock_ig.collections.return_value = [_make_collection(pk=42, name="Travel")]
+        mock_ig.collection_medias.return_value = [
+            _make_media(code="T1", pk="1"),
+            _make_media(code="T2", pk="2"),
+        ]
+
+        client = InstagramClient("user", "pass")
+        client._client = mock_ig
+        export = client.fetch_saved_collection("Travel")
+
+        assert all(item.collection_name == "Travel" for item in export.items)
 
     @patch("ig2raindrop_cli.instagram_api.Client")
     def test_not_found_raises(self, mock_client_cls: MagicMock) -> None:

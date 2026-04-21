@@ -110,12 +110,6 @@ possibly-unresolved-reference = "warn"
 [tool.ty.terminal]
 error-on-warning = true
 
-[tool.pyright]
-pythonVersion = "3.12"
-extraPaths = ["src"]
-reportMissingTypeStubs = false
-reportMissingModuleSource = false
-
 [build-system]
 requires = ["hatchling>=1.29.0"]
 build-backend = "hatchling.build"
