@@ -180,6 +180,36 @@ uv run pytest
 uv run pytest --tb=short -q
 ```
 
+## Release
+
+The release workflow runs when a semantic version tag is pushed (for example `v1.0.0`).
+It will:
+
+- create a GitHub release with generated notes
+- build source and wheel distributions
+- publish packages to PyPI
+- publish packages to GitHub Packages (Python registry)
+- upload built artifacts to the GitHub release
+- build and publish multi-arch Docker images to GHCR
+
+### Maintainer checklist
+
+```bash
+# 1) Ensure all checks pass locally
+uv sync --locked --all-groups
+uv run ruff check src tests
+uv run ruff format --check src tests
+uv run pytest
+
+# 2) Commit release changes (including version bump)
+git add .
+git commit -m "release: prepare v1.0.0"
+
+# 3) Create and push tag
+git tag v1.0.0
+git push origin main --tags
+```
+
 ## License
 
 Copyright (c) 2026 Lukas 'dotWee' Wolfsteiner <lukas@wolfsteiner.media>

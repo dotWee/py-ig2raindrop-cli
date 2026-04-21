@@ -105,6 +105,28 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+  publish-to-github-packages:
+    name: Publish to GitHub Packages (Python)
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v8
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to GitHub Packages
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://upload.pypi.pkg.github.com/${{ github.repository_owner }}/
+          user: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          packages-dir: dist/
+          attestations: false
+          skip-existing: true
+
   upload-to-release:
     name: Upload to GitHub Release
     needs: [build]
