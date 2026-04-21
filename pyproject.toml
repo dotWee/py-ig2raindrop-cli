@@ -46,7 +46,7 @@ packages = [{include = "ig2raindrop_cli", from = "src"}]
 pytest = ">=9.0.3"
 pytest-cov = ">=7.1.0"
 pytest-httpx = ">=0.36.2"
-ty = ">=0.0.30"
+ty = ">=0.0.32"
 ruff = "^0.15.11"
 
 [tool.ruff]
