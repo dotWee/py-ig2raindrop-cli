@@ -356,7 +356,7 @@ wheels = [
 
 [[package]]
 name = "instagrapi"
-version = "2.5.11"
+version = "2.5.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "moviepy" },
@@ -365,9 +365,9 @@ dependencies = [
     { name = "pysocks" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7a/7a/14444f25ff5431e1e226e27456a6aca161f8c4b9e5a369f2f3b3471233c6/instagrapi-2.5.11.tar.gz", hash = "sha256:134a7c767e70c28a9040b534501dced49581b296e0712a78890f119ec2c9e472", size = 126470, upload-time = "2026-04-29T04:18:47.246Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/12/24cf9da95e890822c83e9a114caf387f4c18b88609e1cf34654ebee593ad/instagrapi-2.5.13.tar.gz", hash = "sha256:91615a17a3d0b7c5b81ca352fa94dfbb6bdc56257a5e41f4a3cdd387b5564c46", size = 128727, upload-time = "2026-05-05T20:56:21.247Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/cb/37b6edaf36bfe31a0b024c22a7c526be03f1bfe6525956800131d8eab2b9/instagrapi-2.5.11-py3-none-any.whl", hash = "sha256:39377a493aa514a9130def6dd88460eafd3264c60a5f4bfc479296b0c6bb3439", size = 141810, upload-time = "2026-04-29T04:18:45.517Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/a5/68c1c3341ad6b4d26e817ca4f48eaa979d705e9fec253d240d900184e2bd/instagrapi-2.5.13-py3-none-any.whl", hash = "sha256:10ad2b8af065e3730b83d2438486df21e14598fc6ef332b4741db706609f5eda", size = 143220, upload-time = "2026-05-05T20:56:19.728Z" },
 ]
 
 [[package]]
@@ -772,7 +772,7 @@ wheels = [
 
 [[package]]
 name = "requests"
-version = "2.33.0"
+version = "2.33.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -780,9 +780,9 @@ dependencies = [
     { name = "idna" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/34/64/8860370b167a9721e8956ae116825caff829224fbca0ca6e7bf8ddef8430/requests-2.33.0.tar.gz", hash = "sha256:c7ebc5e8b0f21837386ad0e1c8fe8b829fa5f544d8df3b2253bff14ef29d7652", size = 134232, upload-time = "2026-03-25T15:10:41.586Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/a4/98b9c7c6428a668bf7e42ebb7c79d576a1c3c1e3ae2d47e674b468388871/requests-2.33.1.tar.gz", hash = "sha256:18817f8c57c6263968bc123d237e3b8b08ac046f5456bd1e307ee8f4250d3517", size = 134120, upload-time = "2026-03-30T16:09:15.531Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/5d/c814546c2333ceea4ba42262d8c4d55763003e767fa169adc693bd524478/requests-2.33.0-py3-none-any.whl", hash = "sha256:3324635456fa185245e24865e810cecec7b4caf933d7eb133dcde67d48cee69b", size = 65017, upload-time = "2026-03-25T15:10:40.382Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/8e/7540e8a2036f79a125c1d2ebadf69ed7901608859186c856fa0388ef4197/requests-2.33.1-py3-none-any.whl", hash = "sha256:4e6d1ef462f3626a1f0a0a9c42dd93c63bad33f9f1c1937509b8c5c8718ab56a", size = 64947, upload-time = "2026-03-30T16:09:13.83Z" },
 ]
 
 [[package]]
