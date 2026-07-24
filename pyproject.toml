@@ -45,7 +45,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-httpx>=0.36.2",
     "ty>=0.0.32",
-    "ruff>=0.15.11,<0.16.0",
+    "ruff>=0.15.11,<0.17.0",
 ]
 
 [tool.hatch.build.targets.wheel]
